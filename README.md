@@ -23,7 +23,7 @@ A comprehensive tool for parsing and analyzing Nessus vulnerability scan files.
 
 1. Python 3.8 or higher (tested on 3.10.12)
 2. Required Python packages:
-	- `requests` - necessary for collecting Github star count data for POC lookups.
+	- `requests` - necessary for collecting Github star count data for POC lookups (tested on version 2.32.3). 
 
 ### Setup for go-exploitdb (optional)
 
