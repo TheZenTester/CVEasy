@@ -7,18 +7,21 @@ A comprehensive tool for parsing and analyzing Nessus vulnerability scan files.
 - Parse one or more Nessus (.nessus) XML files or directories containing .nessus files
 - Generate summary reports in Markdown or CSV format
 - Create detailed finding files with descriptions, affected IPs, and outputs
-- Research CVEs using multiple sources:
-  - go-exploitdb
-  - trickest/cve repository
+- Research CVEs using multiple sources. **HUGE** shoutout to these tools/repos, which make this tool much more streamlined:
+  - [go-exploitdb](https://github.com/vulsio/go-exploitdb)
+  - [trickest/cve](https://github.com/trickest/cve) repository
 - Generate Research Summary tables with deduplicated exploit links
 - Create detailed exploit information files
 - Obsidian-compatible links for easy navigation between summary and findings
+
+## Known Constriants
+- [Certain configurations of Tenable.sc](https://community.tenable.com/s/question/0D53a00006XvNwBCAV/tenablesc-nessus-file-exports-missing-critical-plugin-data?language=en_US) are known to exclude the necessary information used in `CVEasy.py` to populate the findings.  If the information is missing from the `.nessus` file, the findings files will likely be bare, and it is unlikely that research capabilities are possible. The tool was successfully tested using `.nessus` files exported from Tenable Professional.
 
 ## Installation
 
 ### Prerequisites
 
-1. Python 3.8 or higher
+1. Python 3.8 or higher (tested on 3.10.12)
 2. Required Python packages: None beyond the standard library
 
 ### Setup for go-exploitdb (optional)
@@ -108,6 +111,10 @@ optional arguments:
 
 The summary file (`[prefix]-nessus-summary.md`) contains:
 - A table with all findings sorted by exploit availability and severity
+  - Exploit availability is broken down into 3 categories:
+    - `Y - Research` - when the `-r`/`--research` flag is used, if one of the CVE repositorites identifies a PoC
+    - `Y - Nessus` - when the Nessus plugin data specifies a vulnerability exists.  If `-r`/`--research` flag is used, but a finding has this designation, it means the research efforts did not return any PoCs.
+    - 'N' - No exploits available :( - but that doesn't mean the finding isn't worth looking at!
 - Links to individual finding files (when using the `-f` option)
 - An additional column for Tester Notes
 - Summary statistics including:
@@ -154,7 +161,7 @@ When using the `--csv` option, two CSV files are created:
    - CVEs
    - Exploit Availability
 
-2. When using both `--csv` and `-r`, an additional `[prefix]-nessus-findings.csv` is created with columns for:
+2. When using both `--csv` and `-r`/`--research`, an additional `[prefix]-nessus-findings.csv` is created with columns for:
    - Plugin ID
    - Finding Name
    - Finding Description
@@ -194,3 +201,40 @@ python CVEasy.py --csv -r -o ./csv-reports -p client-2025 /path/to/scan/data/
 # Generate findings but no exploit details files
 python CVEasy.py -f -r --no-exploit-details /path/to/scan/data/
 ```
+
+# Example Screenshots
+Since pictures "say a thousand words" - some example views in Obsidian after running a findings and research analysis:
+```bash
+python CVEasy.py -f -r --exploitdb-path /opt/go-exploitdb/go-exploitdb.sqlite3 --trickest-path /path/to/trickest-cve /path/to/files/*.nessus
+```
+## Findings Summary
+Example of a Findings Summary table, assuming "research" has been done.
+![image](img/findings-summary.png)
+
+### Findings Summary Obsidian Links
+#### Plugin ID Links to Finding `.md` File
+Hovering over a Plugin ID for a finding displays the contents of the finding/plugin file.
+![image](img/finding-summary-pluginlink.png)
+
+#### Affected IP Links to Section in Finding `.md` File
+For a quick reference of the affected systems, hover over the "Affected IP" count in Obsidian.
+![image](img/findings-summary-affected-hosts.png)
+
+## Finding Details
+### Nessus Data
+Displays information about the plugin, including the severity, description, applicable CVEs, and the affected systems.  If the plugin collected output, it's provided for each host within the finding file.
+![image](img/finding-example.png)
+### Research
+Further down within the same file:
+1. a concise list of Github repositories, which are collected from go-exploitdb/trickest.
+2. A link to the plugin's `-exploit-details.md` file which has more granular information if preferred
+3. Tester's Notes section - to easily delineate end of the report, but allow for tester to use for documenting further testing efforts.
+![image](img/research-table-example.png)
+
+# Future Enhancements
+- Adding additional datasets/repositories for CVE lookup.
+- Improved ordering of finding information in summary tab.
+- Parsing/ranking of github links within the CVE information (perhaps based on the number of github stars?)
+- Tagging/Flagging of certain useful plugins (i.e. useful data in plugin output, or plugin warrants further enumeration of service/system).
+- Cleanup of nessus data prior to writing to file to eliminate unnecessary whitespace.
+- Open to suggestions!
