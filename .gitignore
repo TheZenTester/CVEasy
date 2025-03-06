@@ -1,6 +1,7 @@
 # Default directories created by tool
 findings
 .obsidian
+findings-summary.md
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
