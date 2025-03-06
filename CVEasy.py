@@ -19,6 +19,8 @@ from datetime import datetime
 import logging
 import re
 import socket
+import requests
+from time import sleep
 
 # Setup logging
 logging.basicConfig(
@@ -497,6 +499,56 @@ class NessusParser:
                 if cve in self.cve_research_cache and self.cve_research_cache[cve]:
                     finding.exploit_research[cve] = self.cve_research_cache[cve]
     
+    def _get_github_star_count(self, repo_url):
+    """Fetch star count for a GitHub repository."""
+    if not self.options.github_token or not repo_url or 'github.com' not in repo_url:
+        return 0
+        
+    # Parse owner and repo from URL
+    parts = repo_url.replace('https://github.com/', '').split('/')
+    if len(parts) < 2:
+        return 0
+        
+    owner, repo = parts[0], parts[1]
+    # Remove any trailing information from repo name
+    repo = repo.split('#')[0].split('?')[0]
+    
+    # Check cache first
+    cache_key = f"{owner}/{repo}"
+    if hasattr(self, 'github_star_cache') and cache_key in self.github_star_cache:
+        return self.github_star_cache[cache_key]
+    
+    # Initialize cache if not exists
+    if not hasattr(self, 'github_star_cache'):
+        self.github_star_cache = {}
+    
+    try:
+        headers = {'Authorization': f'token {self.options.github_token}'} if self.options.github_token else {}
+        url = f"https://api.github.com/repos/{owner}/{repo}"
+        
+        response = requests.get(url, headers=headers)
+        
+        # Handle rate limiting
+        if response.status_code == 403 and 'X-RateLimit-Remaining' in response.headers:
+            if int(response.headers['X-RateLimit-Remaining']) == 0:
+                logger.warning(f"GitHub API rate limit reached. Waiting 60 seconds...")
+                sleep(60)  # Wait and try again
+                return self._get_github_star_count(repo_url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            star_count = data.get('stargazers_count', 0)
+            
+            # Cache the result
+            self.github_star_cache[cache_key] = star_count
+            return star_count
+        else:
+            logger.debug(f"Error fetching GitHub stars for {owner}/{repo}: {response.status_code}")
+            return 0
+    except Exception as e:
+        logger.debug(f"Error fetching GitHub stars: {e}")
+        return 0
+        
     def generate_summary(self):
         """Generate summary file in markdown format"""
         if not self.findings:
@@ -1042,6 +1094,8 @@ def parse_args():
                         help='Path to go-exploitdb database')
     parser.add_argument('--trickest-path', default='',
                         help='Path to trickest/cve repository clone')
+    parser.add_argument('--github-token', default='',
+                   help='GitHub API token for fetching repository data')
     
     # Verbose output
     parser.add_argument('-v', '--verbose', action='store_true',
