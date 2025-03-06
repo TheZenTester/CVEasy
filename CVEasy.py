@@ -222,6 +222,10 @@ class NessusParser:
                 
             # Associate research results with findings
             self._associate_research_results()
+
+            # If GitHub token is provided, collect all GitHub URLs and fetch star counts
+            if self.options.github_token:
+                self._fetch_all_github_star_counts()
     
     def _research_with_exploitdb(self, cves):
         """Research CVEs using go-exploitdb"""
@@ -499,6 +503,49 @@ class NessusParser:
                 if cve in self.cve_research_cache and self.cve_research_cache[cve]:
                     finding.exploit_research[cve] = self.cve_research_cache[cve]
     
+    def _fetch_all_github_star_counts(self):
+        """Fetch star counts for all GitHub repositories at once."""
+        # Initialize cache if not exists
+        if not hasattr(self, 'github_star_cache'):
+            self.github_star_cache = {}
+            
+        # Collect all unique GitHub URLs from all findings
+        all_github_urls = set()
+        
+        for finding in self.findings.values():
+            if finding.exploit_research:
+                for cve, research in finding.exploit_research.items():
+                    # Collect from Go-ExploitDB
+                    for source_type in ['github', 'inthewild', 'other']:
+                        if source_type in research:
+                            for exploit in research[source_type]:
+                                if 'url' in exploit and 'github.com' in exploit['url']:
+                                    all_github_urls.add(exploit['url'])
+                    
+                    # Collect from Trickest
+                    if 'trickest' in research:
+                        for item in research['trickest']:
+                            if item['type'] == 'references' and 'references' in item:
+                                for ref in item['references']:
+                                    if ref['type'] == 'github':
+                                        # Extract URLs using regex
+                                        urls = re.findall(r'https?://github\.com/[^\s\)]+', ref['content'])
+                                        for url in urls:
+                                            all_github_urls.add(url)
+        
+        # Fetch star counts for all URLs
+        if all_github_urls:
+            total_urls = len(all_github_urls)
+            logger.info(f"Collecting GitHub star counts for {total_urls} repositories...")
+            
+            for i, url in enumerate(all_github_urls, 1):
+                if i % (round(total_urls,-1)/10) == 0:  # Log progress every 10% repositories
+                    logger.info(f"Fetched star counts for {i}/{total_urls} repositories...")
+                
+                self._get_github_star_count(url)
+            
+            logger.info(f"Completed fetching star counts for {total_urls} repositories")
+    
     def _get_github_star_count(self, repo_url):
         """Fetch star count for a GitHub repository."""
         if not self.options.github_token or not repo_url or 'github.com' not in repo_url:
@@ -597,12 +644,20 @@ class NessusParser:
                                             for url in urls:
                                                 github_urls.add(url)
                     
-                    # Count POCs and fetch star counts
+                    # Count POCs and get star counts from cache
                     poc_count = len(github_urls)
+                    # Transform GitHub URLs to owner/repo cache keys for lookup
+                    cache_keys = []
                     for url in github_urls:
-                        stars = self._get_github_star_count(url)
-                        total_stars += stars
-                
+                        parts = url.replace('https://github.com/', '').split('/')
+                        if len(parts) >= 2:
+                            owner, repo = parts[0], parts[1]
+                            repo = repo.split('#')[0].split('?')[0]
+                            cache_keys.append(f"{owner}/{repo}")
+                            
+                    # Sum the star counts from cache
+                    total_stars = sum(self.github_star_cache.get(key, 0) for key in cache_keys)
+                                    
                 finding_stats[plugin_id] = {
                     'poc_count': poc_count,
                     'total_stars': total_stars
@@ -815,37 +870,46 @@ class NessusParser:
                                 'source': 'Trickest'
                             })
                     
-                    # Get star counts for each exploit URL
+                    # Add star counts from cache to each exploit
                     for exploit in all_exploits:
                         if 'github.com' in exploit['url']:
-                            exploit['stars'] = self._get_github_star_count(exploit['url'])
+                            # Extract owner/repo from URL
+                            parts = exploit['url'].replace('https://github.com/', '').split('/')
+                            if len(parts) >= 2:
+                                owner, repo = parts[0], parts[1]
+                                repo = repo.split('#')[0].split('?')[0]
+                                cache_key = f"{owner}/{repo}"
+                                exploit['stars'] = self.github_star_cache.get(cache_key, 0)
+                            else:
+                                exploit['stars'] = 0
                         else:
                             exploit['stars'] = 0
-
-                    # Update the sorting to consider star count first, then sources
+                    
+                    # Sort exploits by star count (descending), then by number of sources (descending), then by URL
                     all_exploits.sort(key=lambda x: (-x['stars'], -len(x['sources']), x['url']))
-
-                    # Update the Research Summary table to include star count
-                    f.write("## Research Summary\n\n")
-                    f.write("| URL | Star Count | Sources | Related CVEs |\n")
-                    f.write("|-----|------------|---------|-------------|\n")
-
-                    for exploit in all_exploits:
-                        # Format the URL as a nice GitHub link
-                        repo_path = exploit['url'].replace('https://github.com/', '')
-                        parts = repo_path.split('/')
-                        if len(parts) >= 2:
-                            display_url = f"[{parts[0]} - {parts[1]}]({exploit['url']})"
-                        else:
-                            display_url = f"[{exploit['url']}]({exploit['url']})"
+                    
+                    # Generate Research Summary Table
+                    if all_exploits:
+                        f.write("## Research Summary\n\n")
+                        f.write("| URL | Star Count | Sources | Related CVEs |\n")
+                        f.write("|-----|------------|---------|-------------|\n")
                         
-                        stars = exploit.get('stars', 0)
-                        sources = ", ".join(exploit['sources'])
-                        related_cves = ", ".join(sorted(exploit['cves']))
+                        for exploit in all_exploits:
+                            # Format the URL as a nice GitHub link
+                            repo_path = exploit['url'].replace('https://github.com/', '')
+                            parts = repo_path.split('/')
+                            if len(parts) >= 2:
+                                display_url = f"[{parts[0]} - {parts[1]}]({exploit['url']})"
+                            else:
+                                display_url = f"[{exploit['url']}]({exploit['url']})"
+                            
+                            stars = exploit.get('stars', 0)
+                            sources = ", ".join(exploit['sources'])
+                            related_cves = ", ".join(sorted(exploit['cves']))
+                            
+                            f.write(f"| {display_url} | {stars} | {sources} | {related_cves} |\n")
                         
-                        f.write(f"| {display_url} | {stars} | {sources} | {related_cves} |\n")
-                        
-                    f.write("\n")
+                        f.write("\n")
                     
                     # Create exploit details file and link to it (unless disabled)
                     has_trickest_results = False
