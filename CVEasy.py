@@ -500,54 +500,54 @@ class NessusParser:
                     finding.exploit_research[cve] = self.cve_research_cache[cve]
     
     def _get_github_star_count(self, repo_url):
-    """Fetch star count for a GitHub repository."""
-    if not self.options.github_token or not repo_url or 'github.com' not in repo_url:
-        return 0
-        
-    # Parse owner and repo from URL
-    parts = repo_url.replace('https://github.com/', '').split('/')
-    if len(parts) < 2:
-        return 0
-        
-    owner, repo = parts[0], parts[1]
-    # Remove any trailing information from repo name
-    repo = repo.split('#')[0].split('?')[0]
-    
-    # Check cache first
-    cache_key = f"{owner}/{repo}"
-    if hasattr(self, 'github_star_cache') and cache_key in self.github_star_cache:
-        return self.github_star_cache[cache_key]
-    
-    # Initialize cache if not exists
-    if not hasattr(self, 'github_star_cache'):
-        self.github_star_cache = {}
-    
-    try:
-        headers = {'Authorization': f'token {self.options.github_token}'} if self.options.github_token else {}
-        url = f"https://api.github.com/repos/{owner}/{repo}"
-        
-        response = requests.get(url, headers=headers)
-        
-        # Handle rate limiting
-        if response.status_code == 403 and 'X-RateLimit-Remaining' in response.headers:
-            if int(response.headers['X-RateLimit-Remaining']) == 0:
-                logger.warning(f"GitHub API rate limit reached. Waiting 60 seconds...")
-                sleep(60)  # Wait and try again
-                return self._get_github_star_count(repo_url)
-        
-        if response.status_code == 200:
-            data = response.json()
-            star_count = data.get('stargazers_count', 0)
-            
-            # Cache the result
-            self.github_star_cache[cache_key] = star_count
-            return star_count
-        else:
-            logger.debug(f"Error fetching GitHub stars for {owner}/{repo}: {response.status_code}")
+        """Fetch star count for a GitHub repository."""
+        if not self.options.github_token or not repo_url or 'github.com' not in repo_url:
             return 0
-    except Exception as e:
-        logger.debug(f"Error fetching GitHub stars: {e}")
-        return 0
+            
+        # Parse owner and repo from URL
+        parts = repo_url.replace('https://github.com/', '').split('/')
+        if len(parts) < 2:
+            return 0
+            
+        owner, repo = parts[0], parts[1]
+        # Remove any trailing information from repo name
+        repo = repo.split('#')[0].split('?')[0]
+        
+        # Check cache first
+        cache_key = f"{owner}/{repo}"
+        if hasattr(self, 'github_star_cache') and cache_key in self.github_star_cache:
+            return self.github_star_cache[cache_key]
+        
+        # Initialize cache if not exists
+        if not hasattr(self, 'github_star_cache'):
+            self.github_star_cache = {}
+        
+        try:
+            headers = {'Authorization': f'token {self.options.github_token}'} if self.options.github_token else {}
+            url = f"https://api.github.com/repos/{owner}/{repo}"
+            
+            response = requests.get(url, headers=headers)
+            
+            # Handle rate limiting
+            if response.status_code == 403 and 'X-RateLimit-Remaining' in response.headers:
+                if int(response.headers['X-RateLimit-Remaining']) == 0:
+                    logger.warning(f"GitHub API rate limit reached. Waiting 60 seconds...")
+                    sleep(60)  # Wait and try again
+                    return self._get_github_star_count(repo_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                star_count = data.get('stargazers_count', 0)
+                
+                # Cache the result
+                self.github_star_cache[cache_key] = star_count
+                return star_count
+            else:
+                logger.debug(f"Error fetching GitHub stars for {owner}/{repo}: {response.status_code}")
+                return 0
+        except Exception as e:
+            logger.debug(f"Error fetching GitHub stars: {e}")
+            return 0
         
     def generate_summary(self):
         """Generate summary file in markdown format"""
@@ -567,14 +567,59 @@ class NessusParser:
         prefix = self.options.prefix + "-" if self.options.prefix else ""
         summary_file = os.path.join(output_dir, f"{prefix}findings-summary.md")
         
+        # Calculate POC count and star count for each finding if research is enabled
+        finding_stats = {}
+        if self.options.research:
+            for plugin_id, finding in self.findings.items():
+                poc_count = 0
+                total_stars = 0
+                
+                if finding.exploit_research:
+                    # Collect all GitHub URLs
+                    github_urls = set()
+                    
+                    for cve, research in finding.exploit_research.items():
+                        # Collect from Go-ExploitDB
+                        for source_type in ['github', 'inthewild', 'other']:
+                            if source_type in research:
+                                for exploit in research[source_type]:
+                                    if 'url' in exploit and 'github.com' in exploit['url']:
+                                        github_urls.add(exploit['url'])
+                        
+                        # Collect from Trickest
+                        if 'trickest' in research:
+                            for item in research['trickest']:
+                                if item['type'] == 'references' and 'references' in item:
+                                    for ref in item['references']:
+                                        if ref['type'] == 'github':
+                                            # Extract URLs using regex
+                                            urls = re.findall(r'https?://github\.com/[^\s\)]+', ref['content'])
+                                            for url in urls:
+                                                github_urls.add(url)
+                    
+                    # Count POCs and fetch star counts
+                    poc_count = len(github_urls)
+                    for url in github_urls:
+                        stars = self._get_github_star_count(url)
+                        total_stars += stars
+                
+                finding_stats[plugin_id] = {
+                    'poc_count': poc_count,
+                    'total_stars': total_stars
+                }
+        
         # Create summary table
         with open(summary_file, 'w', encoding='utf-8') as f:
             f.write("# Nessus Scan Summary\n\n")
             f.write(f"*Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n")
             
-            # Table header
-            f.write("| Plugin ID | Severity | Plugin Name | Affected IP Count | Exploit Available | Tester Notes |\n")
-            f.write("|-----------|----------|-------------|------------------|------------------|------------|\n")
+            # Table header - conditionally include POC and Star count columns
+            if self.options.research:
+                f.write("| Plugin ID | Severity | Plugin Name | Affected IP Count | Exploit Available | POC Count | Star Count | Tester Notes |\n")
+                f.write("|-----------|----------|-------------|------------------|------------------|-----------|------------|------------|\n")
+            else:
+                f.write("| Plugin ID | Severity | Plugin Name | Affected IP Count | Exploit Available | Tester Notes |\n")
+                f.write("|-----------|----------|-------------|------------------|------------------|------------|\n")
             
             # Table rows
             for finding in sorted_findings:
@@ -590,7 +635,14 @@ class NessusParser:
                     plugin_id_link = finding.plugin_id
                     affected_ips_link = str(len(finding.affected_ips))
                 
-                f.write(f"| {plugin_id_link} | {finding.severity} | {finding.plugin_name} | {affected_ips_link} | {finding.get_exploit_status()} | |\n")
+                # Conditionally include POC and Star count columns
+                if self.options.research:
+                    stats = finding_stats.get(finding.plugin_id, {'poc_count': 0, 'total_stars': 0})
+                    poc_count = stats['poc_count']
+                    star_count = stats['total_stars']
+                    f.write(f"| {plugin_id_link} | {finding.severity} | {finding.plugin_name} | {affected_ips_link} | {finding.get_exploit_status()} | {poc_count} | {star_count} | |\n")
+                else:
+                    f.write(f"| {plugin_id_link} | {finding.severity} | {finding.plugin_name} | {affected_ips_link} | {finding.get_exploit_status()} | |\n")
             
             # Add summary statistics
             f.write("\n## Summary Statistics\n\n")
@@ -631,6 +683,14 @@ class NessusParser:
             f.write("* Findings with exploits:\n")
             f.write(f"  * Confirmed by research: {exploit_research_count}\n")
             f.write(f"  * Reported by Nessus only: {exploit_nessus_count}\n")
+            
+            # Add GitHub repository statistics if research was enabled
+            if self.options.research:
+                total_repos = sum(stats['poc_count'] for stats in finding_stats.values())
+                total_stars = sum(stats['total_stars'] for stats in finding_stats.values())
+                f.write("* GitHub repository statistics:\n")
+                f.write(f"  * Total repositories: {total_repos}\n")
+                f.write(f"  * Total stars: {total_stars}\n")
             
             logger.info(f"Summary file created: {summary_file}")
             return summary_file
@@ -785,7 +845,7 @@ class NessusParser:
                         
                         f.write(f"| {display_url} | {stars} | {sources} | {related_cves} |\n")
                         
-                        f.write("\n")
+                    f.write("\n")
                     
                     # Create exploit details file and link to it (unless disabled)
                     has_trickest_results = False
