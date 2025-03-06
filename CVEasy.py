@@ -80,21 +80,31 @@ class Finding:
         
     def __lt__(self, other):
         """Custom less than for sorting findings"""
-        # First by exploit status (Y-Research > Y-Nessus > N)
+        # First compare by exploit status (Y-Research > Y-Nessus > N)
         exploit_status_self = 2 if self.exploit_research else (1 if self.exploit_available_nessus else 0)
         exploit_status_other = 2 if other.exploit_research else (1 if other.exploit_available_nessus else 0)
         
         if exploit_status_self != exploit_status_other:
             return exploit_status_self > exploit_status_other
+        
+        # If GitHub research is available, compare by POC count next
+        if hasattr(self, 'poc_count') and hasattr(other, 'poc_count'):
+            if self.poc_count != other.poc_count:
+                return self.poc_count > other.poc_count
             
-        # Then by severity
+            # If star counts are available, compare those next
+            if hasattr(self, 'star_count') and hasattr(other, 'star_count'):
+                if self.star_count != other.star_count:
+                    return self.star_count > other.star_count
+        
+        # Finally by severity
         severity_self = self.get_severity_num()
         severity_other = other.get_severity_num()
         
         if severity_self != severity_other:
             return severity_self > severity_other
-            
-        # Finally by plugin ID
+        
+        # As a last resort, sort by plugin ID for consistency
         return self.plugin_id < other.plugin_id
 
 class NessusParser:
@@ -602,8 +612,54 @@ class NessusParser:
             logger.warning("No findings to summarize")
             return
             
-        # Sort findings
+        # Calculate POC count and star count for each finding BEFORE sorting
+        if self.options.research:
+            for plugin_id, finding in self.findings.items():
+                poc_count = 0
+                total_stars = 0
+                
+                if finding.exploit_research:
+                    # Collect all GitHub URLs
+                    github_urls = set()
+                    
+                    for cve, research in finding.exploit_research.items():
+                        # Collect from Go-ExploitDB
+                        for source_type in ['github', 'inthewild', 'other']:
+                            if source_type in research:
+                                for exploit in research[source_type]:
+                                    if 'url' in exploit and 'github.com' in exploit['url']:
+                                        github_urls.add(exploit['url'])
+                        
+                        # Collect from Trickest
+                        if 'trickest' in research:
+                            for item in research['trickest']:
+                                if item['type'] == 'references' and 'references' in item:
+                                    for ref in item['references']:
+                                        if ref['type'] == 'github':
+                                            # Extract URLs using regex
+                                            urls = re.findall(r'https?://github\.com/[^\s\)]+', ref['content'])
+                                            for url in urls:
+                                                github_urls.add(url)
+                    
+                    # Count POCs and get star counts from cache
+                    poc_count = len(github_urls)
+                    for url in github_urls:
+                        # Extract owner/repo from URL for cache lookup
+                        parts = url.replace('https://github.com/', '').split('/')
+                        if len(parts) >= 2:
+                            owner, repo = parts[0], parts[1]
+                            repo = repo.split('#')[0].split('?')[0]
+                            cache_key = f"{owner}/{repo}"
+                            total_stars += self.github_star_cache.get(cache_key, 0)
+                
+                # Directly set attributes on the finding object
+                finding.poc_count = poc_count
+                finding.star_count = total_stars
+        
+        # AFTER setting the attributes, sort the findings
         sorted_findings = sorted(self.findings.values())
+    
+    # [rest of function continues as before]
         
         # Create output directory if specified
         output_dir = self.options.output_dir
