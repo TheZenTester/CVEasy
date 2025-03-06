@@ -755,28 +755,35 @@ class NessusParser:
                                 'source': 'Trickest'
                             })
                     
-                    # Sort exploits by number of sources (descending) then by URL
-                    all_exploits.sort(key=lambda x: (-len(x['sources']), x['url']))
-                    
-                    # Generate Research Summary Table
-                    if all_exploits:
-                        f.write("## Research Summary\n\n")
-                        f.write("| URL | Sources | Related CVEs |\n")
-                        f.write("|-----|---------|-------------|\n")
+                    # Get star counts for each exploit URL
+                    for exploit in all_exploits:
+                        if 'github.com' in exploit['url']:
+                            exploit['stars'] = self._get_github_star_count(exploit['url'])
+                        else:
+                            exploit['stars'] = 0
+
+                    # Update the sorting to consider star count first, then sources
+                    all_exploits.sort(key=lambda x: (-x['stars'], -len(x['sources']), x['url']))
+
+                    # Update the Research Summary table to include star count
+                    f.write("## Research Summary\n\n")
+                    f.write("| URL | Star Count | Sources | Related CVEs |\n")
+                    f.write("|-----|------------|---------|-------------|\n")
+
+                    for exploit in all_exploits:
+                        # Format the URL as a nice GitHub link
+                        repo_path = exploit['url'].replace('https://github.com/', '')
+                        parts = repo_path.split('/')
+                        if len(parts) >= 2:
+                            display_url = f"[{parts[0]} - {parts[1]}]({exploit['url']})"
+                        else:
+                            display_url = f"[{exploit['url']}]({exploit['url']})"
                         
-                        for exploit in all_exploits:
-                            # Format the URL as a nice GitHub link
-                            repo_path = exploit['url'].replace('https://github.com/', '')
-                            parts = repo_path.split('/')
-                            if len(parts) >= 2:
-                                display_url = f"[{parts[0]} - {parts[1]}]({exploit['url']})"
-                            else:
-                                display_url = f"[{exploit['url']}]({exploit['url']})"
-                            
-                            sources = ", ".join(exploit['sources'])
-                            related_cves = ", ".join(sorted(exploit['cves']))
-                            
-                            f.write(f"| {display_url} | {sources} | {related_cves} |\n")
+                        stars = exploit.get('stars', 0)
+                        sources = ", ".join(exploit['sources'])
+                        related_cves = ", ".join(sorted(exploit['cves']))
+                        
+                        f.write(f"| {display_url} | {stars} | {sources} | {related_cves} |\n")
                         
                         f.write("\n")
                     
