@@ -213,7 +213,17 @@ class NessusParser:
         if not self.options.research:
             return
             
-        # Collect all unique CVEs
+        # Load GitHub token from file if specified
+        if self.options.github_token_file and not self.options.github_token:
+            try:
+                with open(self.options.github_token_file, 'r') as f:
+                    # Read the first line and strip whitespace
+                    self.options.github_token = f.readline().strip()
+                    logger.info(f"GitHub token loaded from file: {self.options.github_token_file}")
+            except Exception as e:
+                logger.error(f"Error reading GitHub token from file: {e}")
+        
+        # Continue with existing code...
         all_cves = set()
         for finding in self.findings.values():
             all_cves.update(finding.cves)
@@ -233,8 +243,8 @@ class NessusParser:
             # Associate research results with findings
             self._associate_research_results()
 
-            # If GitHub token is provided, collect all GitHub URLs and fetch star counts
-            if self.options.github_token:
+            # If GitHub token is provided (CLI or file), collect all GitHub URLs and fetch star counts
+            if self.options.github_token or self.options.github_token_file:
                 self._fetch_all_github_star_counts()
     
     def _research_with_exploitdb(self, cves):
@@ -1349,6 +1359,8 @@ def parse_args():
                         help='Path to trickest/cve repository clone')
     parser.add_argument('--github-token', default='',
                    help='GitHub API token for fetching repository data')
+    parser.add_argument('--github-token-file', 
+                    help='Path to file containing GitHub API token (more secure than --github-token)')
     
     # Verbose output
     parser.add_argument('-v', '--verbose', action='store_true',
