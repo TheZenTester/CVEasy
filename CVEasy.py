@@ -549,8 +549,9 @@ class NessusParser:
             logger.info(f"Collecting GitHub star counts for {total_urls} repositories...")
             
             for i, url in enumerate(all_github_urls, 1):
-                if i % (round(total_urls,-1)/10) == 0:  # Log progress every 10% repositories
-                    logger.info(f"Fetched star counts for {i}/{total_urls} repositories...")
+                if total_urls > 10:
+                    if i % (round(total_urls,-1)/10) == 0:  # Log progress every 10% repositories
+                        logger.info(f"Fetched star counts for {i}/{total_urls} repositories...")
                 
                 self._get_github_star_count(url)
             
@@ -605,7 +606,61 @@ class NessusParser:
         except Exception as e:
             logger.debug(f"Error fetching GitHub stars: {e}")
             return 0
+
+    def _sort_findings_with_criteria(self, findings, criteria_str):
+        """Sort findings according to specified criteria."""
+        if criteria_str.lower() == 'default':
+            # Use the built-in __lt__ method for default sorting
+            return sorted(findings)
         
+        valid_criteria = {
+            'exploit_status': lambda f: 2 if f.exploit_research else (1 if f.exploit_available_nessus else 0),
+            'poc_count': lambda f: getattr(f, 'poc_count', 0),
+            'star_count': lambda f: getattr(f, 'star_count', 0),
+            'severity': lambda f: f.get_severity_num(),
+            'plugin_id': lambda f: int(f.plugin_id) if f.plugin_id.isdigit() else f.plugin_id
+        }
+        
+        # Parse the criteria string
+        criteria = []
+        for crit in criteria_str.split(','):
+            crit = crit.strip()
+            reverse = False
+            if ':' in crit:
+                crit, direction = crit.split(':', 1)
+                reverse = (direction.lower() in ['desc', 'descending', 'down', 'd'])
+            
+            # Validate the criterion
+            if crit not in valid_criteria:
+                logger.warning(f"Invalid sorting criterion: {crit}. "
+                            f"Valid options are: {', '.join(valid_criteria.keys())}. "
+                            f"Ignoring this criterion.")
+                continue
+            
+            # Check if the criterion is applicable
+            if crit in ['poc_count', 'star_count'] and not self.options.research:
+                logger.warning(f"Sorting by {crit} requires --research option. Ignoring this criterion.")
+                continue
+            
+            if crit == 'star_count' and not self.options.github_token:
+                logger.warning(f"Sorting by star_count requires --github-token. Ignoring this criterion.")
+                continue
+            
+            criteria.append((crit, valid_criteria[crit], reverse))
+        
+        if not criteria:
+            logger.warning("No valid sorting criteria provided. Using default sorting.")
+            return sorted(findings)
+        
+        # Sort with multiple criteria
+        result = list(findings)
+        # Sort by each criterion in reverse order (least important first)
+        for crit_name, key_func, reverse in reversed(criteria):
+            logger.debug(f"Sorting by criterion: {crit_name} (reverse={reverse})")
+            result.sort(key=key_func, reverse=reverse)
+        
+        return result
+
     def generate_summary(self):
         """Generate summary file in markdown format"""
         if not self.findings:
@@ -657,8 +712,11 @@ class NessusParser:
                 finding.star_count = total_stars
         
         # AFTER setting the attributes, sort the findings
-        sorted_findings = sorted(self.findings.values())
-    
+        sorted_findings = self._sort_findings_with_criteria(
+            self.findings.values(), 
+            self.options.sort_summary
+        )
+            
     # [rest of function continues as before]
         
         # Create output directory if specified
@@ -1259,6 +1317,14 @@ def parse_args():
                         help='Output directory for reports (default: current directory)')
     parser.add_argument('-p', '--prefix', default='',
                         help='Prefix for output files (e.g., client-name)')
+    parser.add_argument('-ss', '--sort-summary', default='default',
+                   help='Criteria to sort the summary by. '
+                        'Format: "criterion1[:direction],criterion2[:direction],...". '
+                        'Valid criteria: exploit_status, poc_count, star_count, severity, plugin_id. '
+                        'Directions: asc/ascending (default) or desc/descending. '
+                        'Alternate formats: ~criterion or ^criterion for descending. '
+                        'Example: "exploit_status,poc_count:desc,severity". '
+                        'Default: exploit_status:desc,poc_count:desc,star_count:desc,severity')
     
     # Finding file options
     parser.add_argument('-f', '--create-findings', action='store_true',
