@@ -313,9 +313,9 @@ Further down within the same file:
 ![image](img/research-table-example.png)
 
 # Future Enhancements
-- Adding additional datasets/repositories for CVE lookup.
-- Improved ordering of finding information in summary tab.
-- Parsing/ranking of github links within the CVE information (perhaps based on the number of github stars?)
-- Tagging/Flagging of certain useful plugins (i.e. useful data in plugin output, or plugin warrants further enumeration of service/system).
-- Cleanup of nessus data prior to writing to file to eliminate unnecessary whitespace.
-- Open to suggestions!
+- [ ] Adding additional datasets/repositories for CVE lookup.
+- [X] Improved ordering of finding information in summary tab.
+- [X] Parsing/ranking of github links within the CVE information (perhaps based on the number of github stars?)
+- [ ] Tagging/Flagging of certain useful plugins (i.e. useful data in plugin output, or plugin warrants further enumeration of service/system).
+- [ ] Cleanup of nessus data prior to writing to file to eliminate unnecessary whitespace.
+- [ ] Open to suggestions!
