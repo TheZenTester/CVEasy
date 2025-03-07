@@ -23,7 +23,10 @@ A comprehensive tool for parsing and analyzing Nessus vulnerability scan files.
 
 1. Python 3.8 or higher (tested on 3.10.12)
 2. Required Python packages:
-	- `requests` - necessary for collecting Github star count data for POC lookups (tested on version 2.32.3). 
+	- `requests` - necessary for collecting Github star count data for POC lookups (tested on version 2.32.3).
+  ```
+  pip3 install -r requirements.txt
+  ```
 
 ### Setup for go-exploitdb (optional)
 
@@ -43,6 +46,20 @@ Clone the repository to your local system:
 git clone https://github.com/trickest/cve.git /path/to/trickest-cve
 ```
 
+### Setup for GitHub API access (optional)
+
+1. Create a GitHub personal access token:
+   - Go to GitHub Settings → Developer Settings → Personal Access Tokens → Fine-grained tokens
+   - Create a new token with "Public repositories (read-only)" permission
+   - No additional permissions are needed beyond the default read-only access
+
+2. Use the token with one of these options:
+   - Direct parameter: `--github-token YOUR_TOKEN_HERE`
+   - From a file (more secure): `--github-token-file /path/to/token.txt`
+      - make sure file applies least permission to token (yes, even for a read-only token) `chmod 600 token.txt`.
+   
+   For the file option, create a text file containing only your token on the first line.
+
 ## Usage
 
 Basic usage:
@@ -53,6 +70,11 @@ python CVEasy.py /path/to/files/*.nessus
 Generate summary and finding files with research:
 ```
 python CVEasy.py -o ./client-report -p client-name -f -r --exploitdb-path /opt/go-exploitdb/go-exploitdb.sqlite3 --trickest-path /path/to/trickest-cve /path/to/files/*.nessus
+```
+
+Generate summary and finding files with research and GitHub star counts:
+```
+python CVEasy.py -o ./client-report -p client-name -f -r --github-token YOUR_TOKEN_HERE /path/to/files/*.nessus
 ```
 
 Generate CSV output:
@@ -70,31 +92,44 @@ Scan a directory for .nessus files:
 python CVEasy.py -f -r /path/to/nessus/directory/
 ```
 
+Custom sorting of findings summary:
+```
+python CVEasy.py -f -r --sort-summary "exploit_status,poc_count:desc,severity" /path/to/files/*.nessus
+```
+
 ## Command Line Options
 
 ```
-usage: CVEasy.py [-h] [-o OUTPUT_DIR] [-p PREFIX] [-f] [--findings-subdir FINDINGS_SUBDIR]
-                      [--no-exploit-details] [--csv] [-r]
-                      [--research-sources RESEARCH_SOURCES] [--exploitdb-path EXPLOITDB_PATH]
-                      [--trickest-path TRICKEST_PATH] [-v]
-                      input_files [input_files ...]
+usage: CVEasy.py [-h] [-o OUTPUT_DIR] [-p PREFIX] [-ss SORT_SUMMARY] [-f]
+                 [--findings-subdir FINDINGS_SUBDIR] [--no-exploit-details] [--csv] [-r]
+                 [--research-sources RESEARCH_SOURCES] [--exploitdb-path EXPLOITDB_PATH]
+                 [--trickest-path TRICKEST_PATH] [--github-token GITHUB_TOKEN]
+                 [--github-token-file GITHUB_TOKEN_FILE] [-v]
+                 input_files [input_files ...]
 
 Parse Nessus files and generate reports
 
 positional arguments:
-  input_files            Path(s) to Nessus files. Can use wildcards (e.g., *.nessus) or directories
+  input_files           Path(s) to Nessus files. Can use wildcards (e.g., *.nessus)
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   -o OUTPUT_DIR, --output-dir OUTPUT_DIR
                         Output directory for reports (default: current directory)
   -p PREFIX, --prefix PREFIX
                         Prefix for output files (e.g., client-name)
+  -ss SORT_SUMMARY, --sort-summary SORT_SUMMARY
+                        Criteria to sort the summary by. Format:
+                        "criterion1[:direction],criterion2[:direction],...". Valid criteria:
+                        exploit_status, poc_count, star_count, severity, plugin_id. Directions:
+                        asc/ascending (default) or desc/descending. Alternate formats: ~criterion or
+                        ^criterion for descending. Example: "exploit_status,poc_count:desc,severity".
+                        Default: exploit_status:desc,poc_count:desc,star_count:desc,severity
   -f, --create-findings
                         Create individual finding files
   --findings-subdir FINDINGS_SUBDIR
                         Subdirectory for finding files (default: findings)
-  --no-exploit-details   Disable generation of exploit details files
+  --no-exploit-details  Disable generation of exploit details files
   --csv                 Generate CSV output instead of markdown
   -r, --research        Research CVEs using available sources
   --research-sources RESEARCH_SOURCES
@@ -103,6 +138,10 @@ optional arguments:
                         Path to go-exploitdb database
   --trickest-path TRICKEST_PATH
                         Path to trickest/cve repository clone
+  --github-token GITHUB_TOKEN
+                        GitHub API token for fetching repository data
+  --github-token-file GITHUB_TOKEN_FILE
+                        Path to file containing GitHub API token (more secure than --github-token)
   -v, --verbose         Enable verbose output
 ```
 
@@ -111,18 +150,21 @@ optional arguments:
 ### Summary File
 
 The summary file (`[prefix]-nessus-summary.md`) contains:
-- A table with all findings sorted by exploit availability and severity
+- A table with all findings sorted by exploit availability, POC count, star count and severity (by default)
   - Exploit availability is broken down into 3 categories:
     - `Y - Research` - when the `-r`/`--research` flag is used, if one of the CVE repositorites identifies a PoC
     - `Y - Nessus` - when the Nessus plugin data specifies a vulnerability exists.  If `-r`/`--research` flag is used, but a finding has this designation, it means the research efforts did not return any PoCs.
-    - 'N' - No exploits available :( - but that doesn't mean the finding isn't worth looking at!
+    - `N` - No exploits available :( - but that doesn't mean the finding isn't worth looking at!
 - Links to individual finding files (when using the `-f` option)
-- An additional column for Tester Notes
+- Additional columns for POC Count and Star Count (when using `-r` and `--github-token` options)
+- A column for Tester Notes
 - Summary statistics including:
   - Total unique targets (split into IPs and hostnames)
   - Total unique findings
   - Findings by severity
   - Findings with exploits
+  - GitHub repository statistics (when using `-r` and `--github-token` options)
+
 
 ### Finding Files
 
@@ -132,7 +174,7 @@ Each finding file (`findings/[PluginID]-[Plugin Name].md`) contains:
 - Associated CVEs as a comma-separated list
 - List of affected IP addresses
 - Plugin output for each affected IP (if available)
-- Research Summary table with links organized by source
+- Research Summary table with links organized by star count and sources
 - Link to detailed exploit information (if available)
 - A section for tester notes
 
@@ -170,6 +212,36 @@ When using the `--csv` option, two CSV files are created:
    - Affected IPs (comma-separated list)
    - Research (each URL with its sources on a separate line)
 
+## Custom Sorting
+
+The `--sort-summary` option allows you to customize the order of findings in the summary table. You can specify multiple sorting criteria in order of importance.
+
+For each criterion, you can set the sort direction:
+- `criterion` or `criterion:asc` - Sort in ascending order
+- `criterion:desc` - Sort in descending order
+
+Valid sorting criteria:
+- `exploit_status` - Sort by exploit availability (Y-Research > Y-Nessus > N)
+- `poc_count` - Sort by number of GitHub repositories (requires `-r`)
+- `star_count` - Sort by total GitHub stars (requires `-r` and `--github-token`)
+- `severity` - Sort by severity level (Critical > High > Medium > Low > Info)
+- `plugin_id` - Sort by plugin ID
+
+Examples:
+
+```bash
+# Sort by POC count (descending), then severity (descending)
+python CVEasy.py -r --sort-summary "poc_count:desc,severity:desc" ...
+
+# Sort by severity (descending) first, then exploit status
+python CVEasy.py -r --sort-summary "severity:desc,exploit_status" ...
+
+# Sort by star count (descending), then plugin ID (ascending)
+python CVEasy.py -r --github-token TOKEN --sort-summary "star_count:desc,plugin_id" ...
+```
+
+The default sorting is: `exploit_status:desc,poc_count:desc,star_count:desc,severity`
+
 ## Examples
 
 ### Processing Multiple Files and Directories
@@ -179,13 +251,14 @@ When using the `--csv` option, two CSV files are created:
 python CVEasy.py -f -r /path/to/dir1/ /path/to/dir2/ /specific/file.nessus
 ```
 
-### Generating Comprehensive Reports
+### Generating Comprehensive Reports with GitHub Integration
 
 ```bash
-# Generate complete reports with all research sources
+# Generate complete reports with all research sources and GitHub star counts
 python CVEasy.py -o ./reports -p client-2025 -f -r \
   --exploitdb-path /opt/go-exploitdb/go-exploitdb.sqlite3 \
   --trickest-path /opt/trickest-cve \
+  --github-token YOUR_GITHUB_TOKEN \
   /path/to/scan/data/
 ```
 
@@ -201,6 +274,13 @@ python CVEasy.py --csv -r -o ./csv-reports -p client-2025 /path/to/scan/data/
 ```bash
 # Generate findings but no exploit details files
 python CVEasy.py -f -r --no-exploit-details /path/to/scan/data/
+```
+
+### Custom Sorting 
+
+```bash
+# Sort by severity first, then POC count
+python CVEasy.py -f -r --sort-summary "severity:desc,poc_count:desc" /path/to/scan/data/
 ```
 
 # Example Screenshots
