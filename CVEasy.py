@@ -661,12 +661,12 @@ class NessusParser:
                 continue
             
             # Check if the criterion is applicable
-            if crit in ['poc_count', 'star_count'] and not self.options.research:
+            if crit in ['poc_count'] and not self.options.research:
                 logger.warning(f"Sorting by {crit} requires --research option. Ignoring this criterion.")
                 continue
             
-            if crit == 'star_count' and not self.options.github_token:
-                logger.warning(f"Sorting by star_count requires --github-token. Ignoring this criterion.")
+            if crit == 'star_count' and (not hasattr(self, 'github_token_valid') or not self.github_token_valid):
+                logger.warning(f"Sorting by star_count requires a valid --github-token. Ignoring this criterion.")
                 continue
             
             criteria.append((crit, valid_criteria[crit], reverse))
