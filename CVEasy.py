@@ -837,10 +837,10 @@ class NessusParser:
                 
                 # Conditionally include POC and Star count columns
                 if self.options.research:
-                    stats = finding_stats.get(finding.plugin_id, {'poc_count': 0, 'total_stars': 0})
-                    poc_count = stats['poc_count']
-                    star_count = stats['total_stars']
-                    f.write(f"| {plugin_id_link} | {finding.severity} | {finding.plugin_name} | {affected_ips_link} | {finding.get_exploit_status()} | {poc_count} | {star_count} | |\n")
+                    if star_data_available:
+                        f.write(f"| {plugin_id_link} | {finding.severity} | {finding.plugin_name} | {affected_ips_link} | {finding.get_exploit_status()} | {finding.poc_count} | {finding.star_count} | |\n")
+                    else:
+                        f.write(f"| {plugin_id_link} | {finding.severity} | {finding.plugin_name} | {affected_ips_link} | {finding.get_exploit_status()} | {finding.poc_count} | |\n")
                 else:
                     f.write(f"| {plugin_id_link} | {finding.severity} | {finding.plugin_name} | {affected_ips_link} | {finding.get_exploit_status()} | |\n")
             
