@@ -689,7 +689,7 @@ class NessusParser:
         if not self.findings:
             logger.warning("No findings to summarize")
             return
-            
+        
         # Calculate POC count and star count for each finding BEFORE sorting
         if self.options.research:
             for plugin_id, finding in self.findings.items():
@@ -739,8 +739,6 @@ class NessusParser:
             self.findings.values(), 
             self.options.sort_summary
         )
-            
-    # [rest of function continues as before]
         
         # Create output directory if specified
         output_dir = self.options.output_dir
@@ -805,10 +803,20 @@ class NessusParser:
             f.write("# Nessus Scan Summary\n\n")
             f.write(f"*Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n")
             
+            # Check if star data is available (valid GitHub token provided and used)
+            star_data_available = hasattr(self, 'github_token_valid') and self.github_token_valid
+            
             # Table header - conditionally include POC and Star count columns
             if self.options.research:
-                f.write("| Plugin ID | Severity | Plugin Name | Affected IP Count | Exploit Available | POC Count | Star Count | Tester Notes |\n")
-                f.write("|-----------|----------|-------------|------------------|------------------|-----------|------------|------------|\n")
+                # If research enabled & Star count collected
+                if star_data_available:
+                    f.write("| Plugin ID | Severity | Plugin Name | Affected IP Count | Exploit Available | POC Count | Star Count | Tester Notes |\n")
+                    f.write("|-----------|----------|-------------|------------------|------------------|-----------|------------|------------|\n")
+                # If research is enabled - but no star counts collected
+                else:
+                    f.write("| Plugin ID | Severity | Plugin Name | Affected IP Count | Exploit Available | POC Count | Tester Notes |\n")
+                    f.write("|-----------|----------|-------------|------------------|------------------|-----------|------------|\n")
+            # No research enabled
             else:
                 f.write("| Plugin ID | Severity | Plugin Name | Affected IP Count | Exploit Available | Tester Notes |\n")
                 f.write("|-----------|----------|-------------|------------------|------------------|------------|\n")
@@ -878,11 +886,15 @@ class NessusParser:
             
             # Add GitHub repository statistics if research was enabled
             if self.options.research:
-                total_repos = sum(stats['poc_count'] for stats in finding_stats.values())
-                total_stars = sum(stats['total_stars'] for stats in finding_stats.values())
+                total_repos = sum(getattr(f, 'poc_count', 0) for f in sorted_findings)
                 f.write("* GitHub repository statistics:\n")
                 f.write(f"  * Total repositories: {total_repos}\n")
-                f.write(f"  * Total stars: {total_stars}\n")
+                
+                if star_data_available:
+                    total_stars = sum(getattr(f, 'star_count', 0) for f in sorted_findings)
+                    f.write(f"  * Total stars: {total_stars}\n")
+                else:
+                    f.write(f"  * Star counts not available (no valid GitHub token provided)\n")
             
             logger.info(f"Summary file created: {summary_file}")
             return summary_file
