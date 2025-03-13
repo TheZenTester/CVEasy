@@ -213,6 +213,10 @@ class NessusParser:
         if not self.options.research:
             return
             
+        # Initialize the star cache regardless of GitHub token status
+        self.github_star_cache = {}
+        self.github_token_valid = False
+            
         # Load GitHub token from file if specified
         if self.options.github_token_file and not self.options.github_token:
             try:
@@ -223,7 +227,15 @@ class NessusParser:
             except Exception as e:
                 logger.error(f"Error reading GitHub token from file: {e}")
         
-        # Continue with existing code...
+        # Validate GitHub token if provided
+        if self.options.github_token:
+            self.github_token_valid = self._validate_github_token(self.options.github_token)
+            if not self.github_token_valid:
+                logger.warning("GitHub star counts will not be collected. Proceeding without this information.")
+        else:
+            logger.info("No GitHub token provided. Star counts will not be collected.")
+        
+        # Loop through findings and grab CVEs...
         all_cves = set()
         for finding in self.findings.values():
             all_cves.update(finding.cves)
@@ -243,9 +255,9 @@ class NessusParser:
             # Associate research results with findings
             self._associate_research_results()
 
-            # If GitHub token is provided (CLI or file), collect all GitHub URLs and fetch star counts
-            if self.options.github_token or self.options.github_token_file:
-                self._fetch_all_github_star_counts()
+            # Only fetch GitHub star counts if we have a valid token
+        if self.github_token_valid:
+            self._fetch_all_github_star_counts()
     
     def _research_with_exploitdb(self, cves):
         """Research CVEs using go-exploitdb"""
@@ -526,8 +538,9 @@ class NessusParser:
     def _fetch_all_github_star_counts(self):
         """Fetch star counts for all GitHub repositories at once."""
         # Initialize cache if not exists
-        if not hasattr(self, 'github_star_cache'):
-            self.github_star_cache = {}
+        if not hasattr(self, 'github_token_valid') or not self.github_token_valid:
+            logger.warning("Skipping GitHub star count collection - no valid token available")
+            return
             
         # Collect all unique GitHub URLs from all findings
         all_github_urls = set()
@@ -1313,6 +1326,32 @@ class NessusParser:
                 
         logger.info(f"Detailed findings CSV file created: {csv_file}")
         return csv_file
+    def _validate_github_token(self, token):
+        """Test the GitHub token to verify it works"""
+        if not token:
+            return False
+            
+        try:
+            # Make a simple API request to verify the token works
+            headers = {'Authorization': f'token {token}'}
+            response = requests.get("https://api.github.com/rate_limit", headers=headers)
+            
+            if response.status_code == 200:
+                # Token is valid - display rate limit info
+                rate_data = response.json()
+                core_remaining = rate_data.get('resources', {}).get('core', {}).get('remaining', 0)
+                core_limit = rate_data.get('resources', {}).get('core', {}).get('limit', 0)
+                logger.info(f"GitHub API token is valid. Rate limit: {core_remaining}/{core_limit} requests remaining")
+                return True
+            elif response.status_code == 401:
+                logger.error("GitHub API token is invalid or has been revoked")
+                return False
+            else:
+                logger.error(f"GitHub API request failed with status code: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Error validating GitHub token: {e}")
+            return False
 
 def parse_args():
     """Parse command line arguments"""
